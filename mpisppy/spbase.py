@@ -425,7 +425,9 @@ class SPBase:
             
         for (ndn,i),prob in sum_probs.items():
             if not math.isclose(prob, 1.0, abs_tol=self.E1_tolerance):
-                raise RuntimeError(f"Probability sum for variable with nonant index={i} at node={ndn} is not unity - computed sum={prob}")
+                # take advantage of Python scoping rules to use an arbitrary senario
+                varname = s._mpisppy_data.nonant_indices[(ndn, i)].name
+                raise RuntimeError(f"Probability sum for variable {varname} with nonant index={i} at node={ndn} is not unity - computed sum={prob}")
 
         if verbose and self.cylinder_rank == 0:
             print ("variable_probability set",didit,"and skipped",skipped)
