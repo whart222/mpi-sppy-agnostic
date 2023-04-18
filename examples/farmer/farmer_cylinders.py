@@ -55,6 +55,23 @@ def _parse_args():
     cfg.parse_command_line("farmer_cylinders")
     return cfg
 
+def _hack(xhatfile, ph_object):
+    # This function should not be in this file (it should be somewhere else).
+    # It is just to illustrated how to manipulate the ph object in some ways
+    # It does not anything useful...
+    import mpisppy.confidence_intervals.ciutils as ciutils
+    xhat_one = ciutils.read_xhat(xhatfile)["ROOT"]
+
+    # Loop over scenarios and compare the x values to xbar
+    # (just for fun).
+    for (sname, scenario) in ph_object.local_scenarios.items():
+        for node in scenario._mpisppy_node_list:
+            assert node.name == "ROOT", "only two stage for now"
+            assert len(xhat_one) == len(node.nonant_vardata_list), "you must have a mismatched xhat file"
+            for (ix,var) in enumerate(node.nonant_vardata_list):
+                print(f"{sname =}, {ix =}, {var.name =}, value={var.value:.1f}, xhat={xhat_one[ix]:.1f}")
+
+
     
 def main():
     
@@ -146,10 +163,17 @@ def main():
     wheel.spin()
 
     if write_solution:
+        xhatfile = 'farmer_cyl_nonants.npy'
         wheel.write_first_stage_solution('farmer_plant.csv')
-        wheel.write_first_stage_solution('farmer_cyl_nonants.npy',
+        wheel.write_first_stage_solution(xhatfile,
                 first_stage_solution_writer=sputils.first_stage_nonant_npy_serializer)
         wheel.write_tree_solution('farmer_full_solution')
+
+    # Now call something to read the nonants and compute the gradient
+    # This is a hack and will crash if write_solution is false
+    if wheel.strata_rank == 0:  # don't do this for bound ranks
+        ph_object = wheel.spcomm.opt
+        _hack(xhatfile, ph_object)
 
 if __name__ == "__main__":
     main()

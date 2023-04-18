@@ -182,7 +182,7 @@ class APH(ph_base.PHBase):
 
     #============================
     def compute_phis_summand(self):
-        # update phis, return summand
+        # update phis, return summand (variable_probability is alread resolved)
         summand = 0.0
         for k,s in self.local_scenarios.items():
             self.phis[k] = 0.0
@@ -252,19 +252,22 @@ class APH(ph_base.PHBase):
             
         # set the xbar, xsqbar, and ybar in all the scenarios
         for k,s in self.local_scenarios.items():
-            nlens = s._mpisppy_data.nlens        
-            for (ndn,i) in s._mpisppy_data.nonant_indices:
-                s._mpisppy_model.xbars[(ndn,i)]._value \
-                    = self.node_concats["FirstReduce"][ndn][i]
-                s._mpisppy_model.xsqbars[(ndn,i)]._value \
-                    = self.node_concats["FirstReduce"][ndn][nlens[ndn]+i]
-                s._mpisppy_model.ybars[(ndn,i)]._value \
-                    = self.node_concats["FirstReduce"][ndn][2*nlens[ndn]+i]
+            nlens = s._mpisppy_data.nlens
+            if not s._mpisppy_dat.has_variable_probability:
+                for (ndn,i) in s._mpisppy_data.nonant_indices:
+                    s._mpisppy_model.xbars[(ndn,i)]._value \
+                        = self.node_concats["FirstReduce"][ndn][i]
+                    s._mpisppy_model.xsqbars[(ndn,i)]._value \
+                        = self.node_concats["FirstReduce"][ndn][nlens[ndn]+i]
+                    s._mpisppy_model.ybars[(ndn,i)]._value \
+                        = self.node_concats["FirstReduce"][ndn][2*nlens[ndn]+i]
 
-                if verbose and self.cylinder_rank == 0:
-                    print ("rank, scen, node, var, xbar:",
-                           self.cylinder_rank,k,ndn,s._mpisppy_data.nonant_indices[ndn,i].name,
-                           pyo.value(s._mpisppy_model.xbars[(ndn,i)]))
+                    if verbose and self.cylinder_rank == 0:
+                        print ("rank, scen, node, var, xbar:",
+                               self.cylinder_rank,k,ndn,s._mpisppy_data.nonant_indices[ndn,i].name,
+                               pyo.value(s._mpisppy_model.xbars[(ndn,i)]))
+            else:
+                xxxxzeroprob        
 
         # There is one tau_summand for the rank; global_tau is out of date when
         # we get here because we could not compute it until the averages were.
@@ -278,17 +281,21 @@ class APH(ph_base.PHBase):
         for sname,s in self.local_scenarios.items():
             scen_usqnorm = 0.0
             scen_vsqnorm = 0.0
-            nlens = s._mpisppy_data.nlens        
+            nlens = s._mpisppy_data.nlens
+            if s._mpisppy_dat.has_variable_probability:
+                self.uk[sname][(ndn,i)] = xxxxxx
             for (ndn,i), xvar in s._mpisppy_data.nonant_indices.items():
-                self.uk[sname][(ndn,i)] = xvar._value \
-                                          - pyo.value(s._mpisppy_model.xbars[(ndn,i)])
+                if not s._mpisppy_dat.has_variable_probability:
+                    self.uk[sname][(ndn,i)] = xvar._value \
+                        - pyo.value(s._mpisppy_model.xbars[(ndn,i)])
                 # compute the usqnorm and vsqnorm (squared L2 norms)
                 scen_usqnorm += self.uk[sname][(ndn,i)] \
                               * self.uk[sname][(ndn,i)]
                 scen_vsqnorm += pyo.value(s._mpisppy_model.ybars[(ndn,i)]) \
                               * pyo.value(s._mpisppy_model.ybars[(ndn,i)])
-            self.local_pusqnorm += pyo.value(s._mpisppy_probability) * scen_usqnorm
-            self.local_pvsqnorm += pyo.value(s._mpisppy_probability) * scen_vsqnorm
+            # Note by DLW April 2023: You need to move the probs up for multi-stage
+            self.local_pusqnorm += pyo.value(s._mpisppy_probability) * scen_usqnorm  # prob first done
+            self.local_pvsqnorm += pyo.value(s._mpisppy_probability) * scen_vsqnorm  # prob first done
             new_tau_summand += pyo.value(s._mpisppy_probability) \
                                * (scen_usqnorm + scen_vsqnorm/self.APHgamma)
                 
