@@ -253,21 +253,18 @@ class APH(ph_base.PHBase):
         # set the xbar, xsqbar, and ybar in all the scenarios
         for k,s in self.local_scenarios.items():
             nlens = s._mpisppy_data.nlens
-            if not s._mpisppy_dat.has_variable_probability:
-                for (ndn,i) in s._mpisppy_data.nonant_indices:
-                    s._mpisppy_model.xbars[(ndn,i)]._value \
-                        = self.node_concats["FirstReduce"][ndn][i]
-                    s._mpisppy_model.xsqbars[(ndn,i)]._value \
-                        = self.node_concats["FirstReduce"][ndn][nlens[ndn]+i]
-                    s._mpisppy_model.ybars[(ndn,i)]._value \
-                        = self.node_concats["FirstReduce"][ndn][2*nlens[ndn]+i]
+            for (ndn,i) in s._mpisppy_data.nonant_indices:
+                s._mpisppy_model.xbars[(ndn,i)]._value \
+                    = self.node_concats["FirstReduce"][ndn][i]
+                s._mpisppy_model.xsqbars[(ndn,i)]._value \
+                    = self.node_concats["FirstReduce"][ndn][nlens[ndn]+i]
+                s._mpisppy_model.ybars[(ndn,i)]._value \
+                    = self.node_concats["FirstReduce"][ndn][2*nlens[ndn]+i]
 
-                    if verbose and self.cylinder_rank == 0:
-                        print ("rank, scen, node, var, xbar:",
-                               self.cylinder_rank,k,ndn,s._mpisppy_data.nonant_indices[ndn,i].name,
-                               pyo.value(s._mpisppy_model.xbars[(ndn,i)]))
-            else:
-                xxxxzeroprob        
+                if verbose and self.cylinder_rank == 0:
+                    print ("rank, scen, node, var, xbar:",
+                           self.cylinder_rank,k,ndn,s._mpisppy_data.nonant_indices[ndn,i].name,
+                           pyo.value(s._mpisppy_model.xbars[(ndn,i)]))
 
         # There is one tau_summand for the rank; global_tau is out of date when
         # we get here because we could not compute it until the averages were.
@@ -398,7 +395,8 @@ class APH(ph_base.PHBase):
         # We don't need to lock here because the direct buffers are only accessed
         # by compute_global_data.
         for k,s in self.local_scenarios.items():
-            nlens = s._mpisppy_data.nlens        
+            nlens = s._mpisppy_data.nlens
+            xxxx zero prob
             for node in s._mpisppy_node_list:
                 ndn = node.name
                 for i in range(nlens[node.name]):
