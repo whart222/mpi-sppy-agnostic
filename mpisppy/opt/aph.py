@@ -396,7 +396,6 @@ class APH(ph_base.PHBase):
         # by compute_global_data.
         for k,s in self.local_scenarios.items():
             nlens = s._mpisppy_data.nlens
-            xxxx zero prob
             for node in s._mpisppy_node_list:
                 ndn = node.name
                 for i in range(nlens[node.name]):
@@ -410,6 +409,16 @@ class APH(ph_base.PHBase):
                     self.local_concats["FirstReduce"][node.name][2*nlens[ndn]+i]\
                         += (s._mpisppy_probability / node.uncond_prob) \
                            * pyo.value(s._mpisppy_model.y[(node.name,i)])
+                    if s._mpisppy_data.has_variable_probability:
+                        # re-do in the unlikely event of variable probabilities xxx TBD: check for multi-stage
+                        prob = s._mpisppy_data.prob_coeff[ndn_i[0]][ndn_i[1]]
+                        self.local_concats["FirstReduce"][node.name][i] += \
+                            (prob / node.uncond_prob) * v_value
+                        self.local_concats["FirstReduce"][node.name][nlens[ndn]+i]\
+                            += (prob / node.uncond_prob) * v_value * v_value
+                        self.local_concats["FirstReduce"][node.name][2*nlens[ndn]+i]\
+                            += (prob / node.uncond_prob) \
+                            * pyo.value(s._mpisppy_model.y[(node.name,i)])
 
         # record the time
         secs_sofar = time.perf_counter() - self.start_time
