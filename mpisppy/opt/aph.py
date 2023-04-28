@@ -279,8 +279,6 @@ class APH(ph_base.PHBase):
             scen_usqnorm = 0.0
             scen_vsqnorm = 0.0
             nlens = s._mpisppy_data.nlens
-            if s._mpisppy_dat.has_variable_probability:
-                self.uk[sname][(ndn,i)] = xxxxxx
             for (ndn,i), xvar in s._mpisppy_data.nonant_indices.items():
                 if not s._mpisppy_dat.has_variable_probability:
                     self.uk[sname][(ndn,i)] = xvar._value \
@@ -293,10 +291,9 @@ class APH(ph_base.PHBase):
             # Note by DLW April 2023: You need to move the probs up for multi-stage
             self.local_pusqnorm += pyo.value(s._mpisppy_probability) * scen_usqnorm  # prob first done
             self.local_pvsqnorm += pyo.value(s._mpisppy_probability) * scen_vsqnorm  # prob first done
+            # I don't think s._mpisppy_dat.has_variable_probability is needed here
             new_tau_summand += pyo.value(s._mpisppy_probability) \
-                               * (scen_usqnorm + scen_vsqnorm/self.APHgamma)
-                
-
+                * (scen_usqnorm + scen_vsqnorm/self.APHgamma)
             
         # tauk is the expecation of the sum sum of squares; update for this calc
         logging.debug('  in side-gig, old global_tau={}'.format(self.global_tau))
@@ -410,6 +407,7 @@ class APH(ph_base.PHBase):
                         += (s._mpisppy_probability / node.uncond_prob) \
                            * pyo.value(s._mpisppy_model.y[(node.name,i)])
                     if s._mpisppy_data.has_variable_probability:
+                        print("debug: APH variable probability")
                         # re-do in the unlikely event of variable probabilities xxx TBD: check for multi-stage
                         prob = s._mpisppy_data.prob_coeff[ndn_i[0]][ndn_i[1]]
                         self.local_concats["FirstReduce"][node.name][i] += \
