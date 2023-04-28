@@ -280,9 +280,8 @@ class APH(ph_base.PHBase):
             scen_vsqnorm = 0.0
             nlens = s._mpisppy_data.nlens
             for (ndn,i), xvar in s._mpisppy_data.nonant_indices.items():
-                if not s._mpisppy_dat.has_variable_probability:
-                    self.uk[sname][(ndn,i)] = xvar._value \
-                        - pyo.value(s._mpisppy_model.xbars[(ndn,i)])
+                self.uk[sname][(ndn,i)] = xvar._value \
+                    - pyo.value(s._mpisppy_model.xbars[(ndn,i)])
                 # compute the usqnorm and vsqnorm (squared L2 norms)
                 scen_usqnorm += self.uk[sname][(ndn,i)] \
                               * self.uk[sname][(ndn,i)]
@@ -409,7 +408,8 @@ class APH(ph_base.PHBase):
                     if s._mpisppy_data.has_variable_probability:
                         print("debug: APH variable probability")
                         # re-do in the unlikely event of variable probabilities xxx TBD: check for multi-stage
-                        prob = s._mpisppy_data.prob_coeff[ndn_i[0]][ndn_i[1]]
+                        ##prob = s._mpisppy_data.prob_coeff[ndn_i[0]][ndn_i[1]]
+                        prob = s._mpisppy_data.prob_coeff[ndn][i]
                         self.local_concats["FirstReduce"][node.name][i] += \
                             (prob / node.uncond_prob) * v_value
                         self.local_concats["FirstReduce"][node.name][nlens[ndn]+i]\
@@ -485,6 +485,7 @@ class APH(ph_base.PHBase):
         for k,s in self.local_scenarios.items():
             probs = pyo.value(s._mpisppy_probability)
             for (ndn, i) in s._mpisppy_data.nonant_indices:
+                xxxx need zero probs
                 Wupdate = self.theta * self.uk[k][(ndn,i)]
                 Ws = pyo.value(s._mpisppy_model.W[(ndn,i)]) + Wupdate
                 s._mpisppy_model.W[(ndn,i)] = Ws 
