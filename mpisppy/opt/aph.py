@@ -406,7 +406,6 @@ class APH(ph_base.PHBase):
                         += (s._mpisppy_probability / node.uncond_prob) \
                            * pyo.value(s._mpisppy_model.y[(node.name,i)])
                     if s._mpisppy_data.has_variable_probability:
-                        print("debug: APH variable probability")
                         # re-do in the unlikely event of variable probabilities xxx TBD: check for multi-stage
                         ##prob = s._mpisppy_data.prob_coeff[ndn_i[0]][ndn_i[1]]
                         prob = s._mpisppy_data.prob_coeff[ndn][i]
@@ -485,10 +484,13 @@ class APH(ph_base.PHBase):
         for k,s in self.local_scenarios.items():
             probs = pyo.value(s._mpisppy_probability)
             for (ndn, i) in s._mpisppy_data.nonant_indices:
-                xxxx need zero probs
                 Wupdate = self.theta * self.uk[k][(ndn,i)]
                 Ws = pyo.value(s._mpisppy_model.W[(ndn,i)]) + Wupdate
-                s._mpisppy_model.W[(ndn,i)] = Ws 
+                # Special code for variable probabilities to mask W; rarely used.
+                if s._mpisppy_data.has_variable_probability:
+                    Ws *= s._mpisppy_data.prob0_mask[ndn][i]
+
+                s._mpisppy_model.W[(ndn,i)] = Ws
                 self.local_pwsqnorm += probs * Ws * Ws
                 # iter 1 is iter 0 post-solves when seen from the paper
                 if self._PHIter != 1:
@@ -496,6 +498,7 @@ class APH(ph_base.PHBase):
                      + self.theta * pyo.value(s._mpisppy_model.ybars[(ndn,i)])/self.APHgamma
                 else:
                      zs = pyo.value(s._mpisppy_model.xbars[(ndn,i)])
+                #### ???? xxxx var probl for z???
                 s._mpisppy_model.z[(ndn,i)] = zs 
                 self.local_pzsqnorm += probs * zs * zs
                 logging.debug("rank={}, scen={}, i={}, Ws={}, zs={}".\
