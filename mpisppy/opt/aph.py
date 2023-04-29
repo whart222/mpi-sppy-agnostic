@@ -498,7 +498,7 @@ class APH(ph_base.PHBase):
                      + self.theta * pyo.value(s._mpisppy_model.ybars[(ndn,i)])/self.APHgamma
                 else:
                      zs = pyo.value(s._mpisppy_model.xbars[(ndn,i)])
-                #### ???? xxxx var probl for z???
+                #### ???? xxxx var prob for z???
                 s._mpisppy_model.z[(ndn,i)] = zs 
                 self.local_pzsqnorm += probs * zs * zs
                 logging.debug("rank={}, scen={}, i={}, Ws={}, zs={}".\
@@ -708,9 +708,9 @@ class APH(ph_base.PHBase):
         for k,s in self.local_scenarios.items():
             print(f"   Scenario {k}")
             for (ndn,i), xvar in s._mpisppy_data.nonant_indices.items():
-                print(f"   {(ndn,i)} {xvar._value:9.3} "
-                      f"{s._mpisppy_model.z[(ndn,i)]._value:9.3}"
-                      f"{s._mpisppy_model.W[(ndn,i)]._value:9.3}"
+                print(f"   {(ndn,i)} {xvar._value:9} "
+                      f"{s._mpisppy_model.z[(ndn,i)]._value:9}"
+                      f"{s._mpisppy_model.W[(ndn,i)]._value:9}"
                       f"{self.uk[k][(ndn,i)]:9.3}")
       
 
