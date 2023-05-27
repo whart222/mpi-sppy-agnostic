@@ -279,14 +279,34 @@ class APH(ph_base.PHBase):
             scen_usqnorm = 0.0
             scen_vsqnorm = 0.0
             nlens = s._mpisppy_data.nlens
-            for (ndn,i), xvar in s._mpisppy_data.nonant_indices.items():
-                self.uk[sname][(ndn,i)] = xvar._value \
-                    - pyo.value(s._mpisppy_model.xbars[(ndn,i)])
-                # compute the usqnorm and vsqnorm (squared L2 norms)
-                scen_usqnorm += self.uk[sname][(ndn,i)] \
-                              * self.uk[sname][(ndn,i)]
-                scen_vsqnorm += pyo.value(s._mpisppy_model.ybars[(ndn,i)]) \
-                              * pyo.value(s._mpisppy_model.ybars[(ndn,i)])
+
+            if not s._mpisppy_data.has_variable_probability:
+
+                for (ndn,i), xvar in s._mpisppy_data.nonant_indices.items():
+                    self.uk[sname][(ndn,i)] = xvar._value \
+                        - pyo.value(s._mpisppy_model.xbars[(ndn,i)]) # Eq.27
+                    # compute the usqnorm and vsqnorm (squared L2 norms)
+                    scen_usqnorm += (self.uk[sname][(ndn,i)] \
+                                     * self.uk[sname][(ndn,i)])
+                    scen_vsqnorm += (pyo.value(s._mpisppy_model.ybars[(ndn,i)]) \
+                                     * pyo.value(s._mpisppy_model.ybars[(ndn,i)]))
+            else:
+                # In the unlikely event of variable probability, do it
+                # over again
+                for (ndn,i), xvar in s._mpisppy_data.nonant_indices.items():
+                    if s._mpisppy_data.prob0_mask[ndn][i] != 0:
+                        self.uk[sname][(ndn,i)] = (
+                            xvar._value \
+                            - pyo.value(s._mpisppy_model.xbars[(ndn,i)]) # Eq.27
+                        )
+                    else:
+                        self.uk[sname][(ndn,i)] = 0
+                    # compute the usqnorm and vsqnorm (squared L2 norms)
+                    scen_usqnorm += (self.uk[sname][(ndn,i)] \
+                                     * self.uk[sname][(ndn,i)])
+                    scen_vsqnorm += (pyo.value(s._mpisppy_model.ybars[(ndn,i)]) \
+                                     * pyo.value(s._mpisppy_model.ybars[(ndn,i)]))
+               
             # Note by DLW April 2023: You need to move the probs up for multi-stage
             self.local_pusqnorm += pyo.value(s._mpisppy_probability) * scen_usqnorm  # prob first done
             self.local_pvsqnorm += pyo.value(s._mpisppy_probability) * scen_vsqnorm  # prob first done
