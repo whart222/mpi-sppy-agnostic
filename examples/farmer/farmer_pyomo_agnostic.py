@@ -8,7 +8,7 @@ with the guest language
 """
 
 import pyomo.environ as pyo
-from pyomo.opt import SolverFactory, SolutionStatus, TerminationCondition
+from pyomo.opt import SolutionStatus, TerminationCondition
 import farmer   # the native farmer (makes a few things easy)
 
 # for debuggig
@@ -187,7 +187,7 @@ def solve_one(Ag, s, solve_keyword_args, gripe, tee=False):
     else:
         solver_exception = None
         try:
-            results = solver.solve(gs, tee=tee, symbolic_solver_labels=True,load_solutions=False)
+            results = solver.solve(gs, tee=tee, symbolic_solver_labels=False, load_solutions=False)
         except Exception as e:
             results = None
             solver_exception = e
