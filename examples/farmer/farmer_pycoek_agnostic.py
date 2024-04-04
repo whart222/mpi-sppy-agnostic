@@ -188,6 +188,7 @@ def solve_one(Ag, s, solve_keyword_args, gripe, tee=False):
         solver_exception = None
         try:
             results = solver.solve(gs, tee=tee, symbolic_solver_labels=False, load_solutions=False)
+            #results = solver.solve(gs, tee=True, symbolic_solver_labels=False, load_solutions=False)
         except Exception as e:
             results = None
             solver_exception = e
@@ -216,7 +217,15 @@ def solve_one(Ag, s, solve_keyword_args, gripe, tee=False):
             s._mpisppy_data.outer_bound = results.Problem[0].Lower_bound
         else:
             s._mpisppy_data.outer_bound = results.Problem[0].Upper_bound
-        gs.solutions.load_from(results)
+
+        # WEH - pycoek stores the solution, so we don't need to load the data into 
+        #       the pyomo wrapper objects.  We *do* have a dummy loader object, but
+        #       pyomo sets the model variables to 'stale' outside of that loader.
+        #       Hence, our alternative is to skip the loader or call a pycoek-specific
+        #       method here.
+        # 
+        #gs.solutions.load_from(results)
+
         # copy the nonant x values from gs to s so mpisppy can use them in s
         for ndn_i, gxvar in gd["nonants"].items():
             # courtesy check for staleness on the guest side before the copy
@@ -230,10 +239,12 @@ def solve_one(Ag, s, solve_keyword_args, gripe, tee=False):
                         "did not appear in any (active) components, and hence "
                         "was not communicated to the subproblem solver. ")
                 
+            #print("HERE",ndn_i, gxvar, gxvar._value, gxvar.stale, gxvar._pe.value, gxvar._pe.id)
             s._mpisppy_data.nonant_indices[ndn_i]._value = gxvar._value
 
         # the next line ignore bundling
         s._mpisppy_data._obj_from_agnostic = pyo.value(gs.Total_Cost_Objective)
+        #print("OBJ",s._mpisppy_data._obj_from_agnostic)
 
     # TBD: deal with other aspects of bundling (see solve_one in spopt.py)
 
@@ -255,6 +266,10 @@ def _copy_Ws_xbars_rho_from_host(s):
         else:
             # presumably an xhatter
             pass
+        if False:
+            print("COPY_W_FROM_HOST    ", ndn_i, pyo.value(gs.W[ndn_i]), pyo.value(s._mpisppy_model.W[ndn_i]))
+            print("COPY_rho_FROM_HOST  ", ndn_i, pyo.value(gs.rho[ndn_i]), pyo.value(s._mpisppy_model.rho[ndn_i]))
+            print("COPY_xbars_FROM_HOST", ndn_i, pyo.value(gs.xbars[ndn_i]), pyo.value(s._mpisppy_model.xbars[ndn_i]))
 
 
 # local helper
@@ -271,6 +286,8 @@ def _copy_nonants_from_host(s):
             guestVar.fix(hostVar._value)
         else:
             guestVar._value = hostVar._value
+        if False:
+            print("COPY_NONANTS_FROM_HOST", ndn_i, pyo.value(guestVar), pyo.value(hostVar), gxvar.value)
 
 def _restore_nonants(Ag, s):
     # the host has already restored
