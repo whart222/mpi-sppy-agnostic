@@ -103,9 +103,9 @@ def pysp_instance_creation_callback(
     def crops_init(m):
         retval = []
         for i in range(crops_multiplier):
-            retval.append("WHEAT"+str(i))
-            retval.append("CORN"+str(i))
-            retval.append("SUGAR_BEETS"+str(i))
+            retval.append(f"WHEAT{i}")
+            retval.append(f"CORN{i}")
+            retval.append(f"SUGAR_BEETS{i}")
         return retval
 
     model.CROPS = pyo.Set(initialize=crops_init)
@@ -119,8 +119,9 @@ def pysp_instance_creation_callback(
     def _scale_up_data(indict):
         outdict = {}
         for i in range(crops_multiplier):
-           for crop in ['WHEAT', 'CORN', 'SUGAR_BEETS']:
-               outdict[crop+str(i)] = indict[crop]
+           outdict[f"WHEAT{i}"] = indict["WHEAT"]
+           outdict[f"CORN{i}"] = indict["CORN"]
+           outdict[f"SUGAR_BEETS{i}"] = indict["SUGAR_BEETS"]
         return outdict
         
     model.PriceQuota = _scale_up_data(

@@ -7,14 +7,22 @@ still written in Python, it just needs to interact
 with the guest language
 """
 
+if True:
+    from pyomo.common.gc_manager import PauseGC
+else:
+    from contextlib import nullcontext as PauseGC
+from pyomo.common.timing import HierarchicalTimer
 from pyomo_coek import components_only as pyo
 SolutionStatus = pyo.SolutionStatus
+TerminationCondition = pyo.TerminationCondition
 import farmer_pycoek as farmer  # the native farmer (makes a few things easy)
 
 # for debuggig
 from mpisppy import MPI
 fullcomm = MPI.COMM_WORLD
 global_rank = fullcomm.Get_rank()
+
+timer = HierarchicalTimer()
 
 def scenario_creator(
     scenario_name, use_integer=False, sense=pyo.minimize, crops_multiplier=1,
@@ -39,41 +47,55 @@ def scenario_creator(
             Default is None.
         seedoffset (int): used by confidence interval code
     """
-    s = farmer.scenario_creator(scenario_name, use_integer, sense, crops_multiplier,
-        num_scens, seedoffset)
-    # In general, be sure to process variables in the same order has the guest does (so indexes match)
-    gd = {
-        "scenario": s,
-        "nonants": {("ROOT",i): v for i,v in enumerate(s.DevotedAcreage.values())},
-        "nonant_fixedness": {("ROOT",i): v.is_fixed() for i,v in enumerate(s.DevotedAcreage.values())},
-        "nonant_start": {("ROOT",i): v._value for i,v in enumerate(s.DevotedAcreage.values())},
-        "nonant_names": {("ROOT",i): v.name for i, v in enumerate(s.DevotedAcreage.values())},
-        "probability": "uniform",
-        "sense": pyo.minimize,
-        "BFs": None
-        }
+    timer.start("scenario_creator")
+    with PauseGC() as pgc:
+        s = farmer.scenario_creator(scenario_name, use_integer, sense, crops_multiplier,
+            num_scens, seedoffset)
+        # In general, be sure to process variables in the same order has the guest does (so indexes match)
+        gd = {
+            "scenario": s,
+            "nonants": {("ROOT",i): v for i,v in enumerate(s.DevotedAcreage.values())},
+            "nonant_fixedness": {("ROOT",i): v.is_fixed() for i,v in enumerate(s.DevotedAcreage.values())},
+            "nonant_start": {("ROOT",i): v._value for i,v in enumerate(s.DevotedAcreage.values())},
+            "nonant_names": {("ROOT",i): v.name for i, v in enumerate(s.DevotedAcreage.values())},
+            "probability": "uniform",
+            "sense": pyo.minimize,
+            "BFs": None
+            }
+    timer.stop("scenario_creator")
     return gd
     
 #=========
 def scenario_names_creator(num_scens,start=None):
-    return farmer.scenario_names_creator(num_scens,start)
+    timer.start("scenario_names")
+    ans = farmer.scenario_names_creator(num_scens,start)
+    timer.stop("scenario_names")
+    return ans
 
 
 #=========
 def inparser_adder(cfg):
+    timer.start("inparser_adder")
     farmer.inparser_adder(cfg)
+    timer.stop("inparser_adder")
 
     
 #=========
 def kw_creator(cfg):
+    timer.start("kw_creator")
     # creates keywords for scenario creator
-    return farmer.kw_creator(cfg)
+    ans = farmer.kw_creator(cfg)
+    timer.stop("kw_creator")
+    return ans
 
 # This is not needed for PH
 def sample_tree_scen_creator(sname, stage, sample_branching_factors, seed,
                              given_scenario=None, **scenario_creator_kwargs):
-    return farmer.sample_tree_scen_creator(sname, stage, sample_branching_factors, seed,
+    timer.start("sample_tree")
+    ans = farmer.sample_tree_scen_creator(sname, stage, sample_branching_factors, seed,
                                            given_scenario, **scenario_creator_kwargs)
+    timer.stop("sample_tree")
+    return ans
 
 #============================
 def scenario_denouement(rank, scenario_name, scenario):
@@ -89,6 +111,7 @@ def scenario_denouement(rank, scenario_name, scenario):
 # the function names correspond to function names in mpisppy
 
 def attach_Ws_and_prox(Ag, sname, scenario):
+    timer.start("attach_Ws")
     # this is farmer specific, so we know there is not a W already, e.g.
     # Attach W's and prox to the guest scenario.
     gs = scenario._agnostic_dict["scenario"]  # guest scenario handle
@@ -97,6 +120,7 @@ def attach_Ws_and_prox(Ag, sname, scenario):
     gs.W_on = pyo.Param(initialize=0, mutable=True, within=pyo.Binary)
     gs.prox_on = pyo.Param(initialize=0, mutable=True, within=pyo.Binary)
     gs.rho = pyo.Param(nonant_idx, mutable=True, default=Ag.cfg.default_rho)
+    timer.stop("attach_Ws")
 
 
 def _disable_prox(Ag, scenario):
@@ -116,6 +140,7 @@ def _reenable_W(Ag, scenario):
     
     
 def attach_PH_to_objective(Ag, sname, scenario, add_duals, add_prox):
+    timer.start("attach_objective")
     # Deal with prox linearization and approximation later,
     # i.e., just do the quadratic version
 
@@ -123,40 +148,41 @@ def attach_PH_to_objective(Ag, sname, scenario, add_duals, add_prox):
     ### xbars = scenario._mpisppy_model.xbars
     ### but instead, we are going to make guest xbars like other guests
     
-
-    gd = scenario._agnostic_dict
-    gs = gd["scenario"]  # guest scenario handle
-    nonant_idx = list(gd["nonants"].keys())    
-    objfct = gs.Total_Cost_Objective  # we know this is farmer...
-    ph_term = 0
-    gs.xbars = pyo.Param(nonant_idx, mutable=True)
-    # Dual term (weights W)
-    if add_duals:
-        gs.WExpr = pyo.Expression(expr= sum(gs.W[ndn_i] * xvar for ndn_i,xvar in gd["nonants"].items()))
-        ph_term += gs.W_on * gs.WExpr
-        
-        # Prox term (quadratic)
-        if (add_prox):
-            prox_expr = 0.
-            for ndn_i, xvar in gd["nonants"].items():
-                # expand (x - xbar)**2 to (x**2 - 2*xbar*x + xbar**2)
-                # x**2 is the only qradratic term, which might be
-                # dealt with differently depending on user-set options
-                if xvar.is_binary():
-                    xvarsqrd = xvar
+    with PauseGC() as pgc:
+        gd = scenario._agnostic_dict
+        gs = gd["scenario"]  # guest scenario handle
+        nonant_idx = list(gd["nonants"].keys())    
+        objfct = gs.Total_Cost_Objective  # we know this is farmer...
+        ph_term = 0
+        gs.xbars = pyo.Param(nonant_idx, mutable=True)
+        # Dual term (weights W)
+        if add_duals:
+            gs.WExpr = pyo.Expression(expr= sum(gs.W[ndn_i] * xvar for ndn_i,xvar in gd["nonants"].items()))
+            ph_term += gs.W_on * gs.WExpr
+            
+            # Prox term (quadratic)
+            if (add_prox):
+                prox_expr = 0.
+                for ndn_i, xvar in gd["nonants"].items():
+                    # expand (x - xbar)**2 to (x**2 - 2*xbar*x + xbar**2)
+                    # x**2 is the only qradratic term, which might be
+                    # dealt with differently depending on user-set options
+                    if xvar.is_binary():
+                        xvarsqrd = xvar
+                    else:
+                        xvarsqrd = xvar**2
+                    prox_expr += (gs.rho[ndn_i] / 2.0) * \
+                        (xvarsqrd - 2.0 * gs.xbars[ndn_i] * xvar + gs.xbars[ndn_i]**2)
+                gs.ProxExpr = pyo.Expression(expr=prox_expr)
+                ph_term += gs.prox_on * gs.ProxExpr
+                        
+                if gd["sense"] == pyo.minimize:
+                    objfct.expr += ph_term
+                elif gd["sense"] == pyo.maximize:
+                    objfct.expr -= ph_term
                 else:
-                    xvarsqrd = xvar**2
-                prox_expr += (gs.rho[ndn_i] / 2.0) * \
-                    (xvarsqrd - 2.0 * gs.xbars[ndn_i] * xvar + gs.xbars[ndn_i]**2)
-            gs.ProxExpr = pyo.Expression(expr=prox_expr)
-            ph_term += gs.prox_on * gs.ProxExpr
-                    
-            if gd["sense"] == pyo.minimize:
-                objfct.expr += ph_term
-            elif gd["sense"] == pyo.maximize:
-                objfct.expr -= ph_term
-            else:
-                raise RuntimeError(f"Unknown sense {gd['sense'] =}")
+                    raise RuntimeError(f"Unknown sense {gd['sense'] =}")
+    timer.stop("attach_objective")
             
 
 def solve_one(Ag, s, solve_keyword_args, gripe, tee=False):
@@ -171,110 +197,108 @@ def solve_one(Ag, s, solve_keyword_args, gripe, tee=False):
     # To acommdate the solve_one call from xhat_eval.py, we need to attach the obj fct value to s
 
     _copy_Ws_xbars_rho_from_host(s)
+    timer.start("solve_one")
     gd = s._agnostic_dict
     gs = gd["scenario"]  # guest scenario handle
 
-    print(f" in _solve_one  {global_rank =}")
-    if global_rank == 0:
-        print(f"{gs.W.pprint() =}")
-        print(f"{gs.xbars.pprint() =}")
-    solver_name = s._solver_plugin.name
-    solver = pyo.SolverFactory(solver_name)
-    if 'persistent' in solver_name:
-        raise RuntimeError("Persistent solvers are not currently supported in the farmer agnostic example.")
-        ###solver.set_instance(ef, symbolic_solver_labels=True)
-        ###solver.solve(tee=True)
-    else:
-        solver_exception = None
-        try:
-            results = solver.solve(gs, tee=tee, symbolic_solver_labels=False, load_solutions=False)
-            #results = solver.solve(gs, tee=True, symbolic_solver_labels=False, load_solutions=False)
-        except Exception as e:
-            results = None
-            solver_exception = e
+    if not Ag.quiet:
+        print(f" in _solve_one  {global_rank =}")
+        if global_rank == 0:
+            print(f"{gs.W.pprint() =}")
+            print(f"{gs.xbars.pprint() =}")
 
-    if (results is None) or (len(results.solution) == 0) or \
-            (results.solution(0).status == SolutionStatus.infeasible) or \
-            (results.solver.termination_condition == pyo.TerminationCondition.infeasible) or \
-            (results.solver.termination_condition == pyo.TerminationCondition.infeasibleOrUnbounded) or \
-            (results.solver.termination_condition == pyo.TerminationCondition.unbounded):
-
-        s._mpisppy_data.scenario_feasible = False
-
-        if gripe:
-            print (f"Solve failed for scenario {s.name} on rank {global_rank}")
-            if results is not None:
-                print ("status=", results.solver.status)
-                print ("TerminationCondition=",
-                       results.solver.termination_condition)
-
-        if solver_exception is not None:
-            raise solver_exception
-
-    else:
-        s._mpisppy_data.scenario_feasible = True
-        if gd["sense"] == pyo.minimize:
-            s._mpisppy_data.outer_bound = results.Problem[0].Lower_bound
+    with PauseGC() as pgc:
+        solver_name = s._solver_plugin.name
+        solver = pyo.SolverFactory(solver_name)
+        if 'persistent' in solver_name:
+            raise RuntimeError("Persistent solvers are not currently supported in the farmer agnostic example.")
+            ###solver.set_instance(ef, symbolic_solver_labels=True)
+            ###solver.solve(tee=True)
         else:
-            s._mpisppy_data.outer_bound = results.Problem[0].Upper_bound
+            solver_exception = None
+            try:
+                results = solver.solve(gs, tee=tee, symbolic_solver_labels=False, load_solutions=False)
+                #results = solver.solve(gs, tee=True, symbolic_solver_labels=False, load_solutions=False)
+            except Exception as e:
+                results = None
+                solver_exception = e
 
-        # WEH - pycoek stores the solution, so we don't need to load the data into 
-        #       the pyomo wrapper objects.  We *do* have a dummy loader object, but
-        #       pyomo sets the model variables to 'stale' outside of that loader.
-        #       Hence, our alternative is to skip the loader or call a pycoek-specific
-        #       method here.
-        # 
-        #gs.solutions.load_from(results)
+        if (results is None) or (len(results.solution) == 0) or \
+                (results.solution(0).status == SolutionStatus.infeasible) or \
+                (results.solver.termination_condition == TerminationCondition.infeasible) or \
+                (results.solver.termination_condition == TerminationCondition.infeasibleOrUnbounded) or \
+                (results.solver.termination_condition == TerminationCondition.unbounded):
 
-        # copy the nonant x values from gs to s so mpisppy can use them in s
-        for ndn_i, gxvar in gd["nonants"].items():
-            # courtesy check for staleness on the guest side before the copy
-            if not gxvar.fixed and gxvar.stale:
-                try:
-                    float(pyo.value(gxvar))
-                except:
-                    raise RuntimeError(
-                        f"Non-anticipative variable {gxvar.name} on scenario {s.name} "
-                        "reported as stale. This usually means this variable "
-                        "did not appear in any (active) components, and hence "
-                        "was not communicated to the subproblem solver. ")
-                
-            #print("HERE",ndn_i, gxvar, gxvar._value, gxvar.stale, gxvar._pe.value, gxvar._pe.id)
-            s._mpisppy_data.nonant_indices[ndn_i]._value = gxvar._value
+            s._mpisppy_data.scenario_feasible = False
 
-        # the next line ignore bundling
-        s._mpisppy_data._obj_from_agnostic = pyo.value(gs.Total_Cost_Objective)
-        #print("OBJ",s._mpisppy_data._obj_from_agnostic)
+            if gripe:
+                print (f"Solve failed for scenario {s.name} on rank {global_rank}")
+                if results is not None:
+                    print ("status=", results.solver.status)
+                    print ("TerminationCondition=",
+                           results.solver.termination_condition)
+
+            if solver_exception is not None:
+                raise solver_exception
+
+        else:
+            s._mpisppy_data.scenario_feasible = True
+            if gd["sense"] == pyo.minimize:
+                s._mpisppy_data.outer_bound = results.Problem[0].Lower_bound
+            else:
+                s._mpisppy_data.outer_bound = results.Problem[0].Upper_bound
+
+            # WEH - pycoek stores the solution, so we don't need to load the data into 
+            #       the pyomo wrapper objects.  We *do* have a dummy loader object, but
+            #       pyomo sets the model variables to 'stale' outside of that loader.
+            #       Hence, our alternative is to skip the loader or call a pycoek-specific
+            #       method here.
+            # 
+            #gs.solutions.load_from(results)
+
+            # copy the nonant x values from gs to s so mpisppy can use them in s
+            for ndn_i, gxvar in gd["nonants"].items():
+                # courtesy check for staleness on the guest side before the copy
+                if not gxvar.fixed and gxvar.stale:
+                    try:
+                        float(pyo.value(gxvar))
+                    except:
+                        raise RuntimeError(
+                            f"Non-anticipative variable {gxvar.name} on scenario {s.name} "
+                            "reported as stale. This usually means this variable "
+                            "did not appear in any (active) components, and hence "
+                            "was not communicated to the subproblem solver. ")
+                    
+                s._mpisppy_data.nonant_indices[ndn_i]._value = gxvar._value
+
+            # the next line ignore bundling
+            s._mpisppy_data._obj_from_agnostic = pyo.value(gs.Total_Cost_Objective)
 
     # TBD: deal with other aspects of bundling (see solve_one in spopt.py)
+    timer.stop("solve_one")
 
 
 # local helper
 def _copy_Ws_xbars_rho_from_host(s):
+    timer.start("copy_Ws_xbars_rho")
     # This is an important function because it allows us to capture whatever the host did
-    # print(f"   {s.name =}, {global_rank =}")
     gd = s._agnostic_dict
     gs = gd["scenario"]  # guest scenario handle
-    for ndn_i, gxvar in gd["nonants"].items():
-        hostVar = s._mpisppy_data.nonant_indices[ndn_i]
-        assert hasattr(s, "_mpisppy_model"),\
+    assert hasattr(s, "_mpisppy_model"),\
             f"what the heck!! no _mpisppy_model {s.name =} {global_rank =}"
-        if hasattr(s._mpisppy_model, "W"):
-            gs.W[ndn_i] = pyo.value(s._mpisppy_model.W[ndn_i])
-            gs.rho[ndn_i] = pyo.value(s._mpisppy_model.rho[ndn_i])
-            gs.xbars[ndn_i] = pyo.value(s._mpisppy_model.xbars[ndn_i])
-        else:
-            # presumably an xhatter
-            pass
-        if False:
-            print("COPY_W_FROM_HOST    ", ndn_i, pyo.value(gs.W[ndn_i]), pyo.value(s._mpisppy_model.W[ndn_i]))
-            print("COPY_rho_FROM_HOST  ", ndn_i, pyo.value(gs.rho[ndn_i]), pyo.value(s._mpisppy_model.rho[ndn_i]))
-            print("COPY_xbars_FROM_HOST", ndn_i, pyo.value(gs.xbars[ndn_i]), pyo.value(s._mpisppy_model.xbars[ndn_i]))
+    if hasattr(s._mpisppy_model, "W"):
+        _mpisppy_model = s._mpisppy_model
+        for ndn_i in gs.W:
+            gs.W[ndn_i] = _mpisppy_model.W[ndn_i]._value
+            gs.rho[ndn_i] = _mpisppy_model.rho[ndn_i]._value
+            gs.xbars[ndn_i] = _mpisppy_model.xbars[ndn_i]._value
+    timer.stop("copy_Ws_xbars_rho")
 
 
 # local helper
 def _copy_nonants_from_host(s):
-    # values and fixedness; 
+    timer.start("copy_nonants")
+    # values and fixedness;
     gd = s._agnostic_dict
     gs = gd["scenario"]  # guest scenario handle
     for ndn_i, gxvar in gd["nonants"].items():
@@ -286,8 +310,8 @@ def _copy_nonants_from_host(s):
             guestVar.fix(hostVar._value)
         else:
             guestVar._value = hostVar._value
-        if False:
-            print("COPY_NONANTS_FROM_HOST", ndn_i, pyo.value(guestVar), pyo.value(hostVar), gxvar.value)
+    timer.stop("copy_nonants")
+
 
 def _restore_nonants(Ag, s):
     # the host has already restored

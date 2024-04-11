@@ -28,6 +28,8 @@ def _farmer_parse_args():
 
 
 if __name__ == "__main__":
+    farmer_pycoek_agnostic.timer.start("main")
+    farmer_pycoek_agnostic.timer.start("pre_solve")
     print("begin ad hoc main for agnostic.py")
 
     cfg = _farmer_parse_args()
@@ -49,9 +51,18 @@ if __name__ == "__main__":
     # pass the Ag object via options...
     hub_dict["opt_kwargs"]["options"]["Ag"] = Ag
 
+    Ag.quiet = True         # Is there a better place to pass in "other" options?
+    hub_dict["opt_kwargs"]["options"]["display_progress"] = True
+    hub_dict["opt_kwargs"]["options"]["verbose"] = False
+    hub_dict["opt_kwargs"]["options"]["display_timing"] = False
+
     ph = hub_dict["opt_class"](**hub_dict["opt_kwargs"])
 
+    farmer_pycoek_agnostic.timer.stop("pre_solve")
+    farmer_pycoek_agnostic.timer.start("ph")
     conv, obj, triv = ph.ph_main()
+    farmer_pycoek_agnostic.timer.stop("ph")
+    farmer_pycoek_agnostic.timer.start("post_solve")
     # Obj includes prox (only ok if we find a non-ant soln)
     if (conv < 1e-8):
         print(f'Objective value: {obj:.2f}')
@@ -60,3 +71,8 @@ if __name__ == "__main__":
              f'(conv = {conv:.1e})')
     
     ph.post_solve_bound(verbose=False)
+    farmer_pycoek_agnostic.timer.stop("post_solve")
+    farmer_pycoek_agnostic.timer.stop("main")
+    print(farmer_pycoek_agnostic.timer)
+    farmer_pycoek_agnostic.timer.timers["main"].flatten()
+    print(farmer_pycoek_agnostic.timer)
