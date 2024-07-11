@@ -9,6 +9,8 @@ import os
 import re
 import time
 import numpy as np
+import inspect
+import importlib
 import mpisppy.scenario_tree as scenario_tree
 from pyomo.core import Objective
 
@@ -16,8 +18,44 @@ from mpisppy import MPI, haveMPI
 global_rank = MPI.COMM_WORLD.Get_rank()
 from pyomo.core.expr.numeric_expr import LinearExpression
 from pyomo.opt import SolutionStatus, TerminationCondition
+from pyomo.core.base.indexed_component_slice import IndexedComponent_slice
 
 from mpisppy import tt_timer, global_toc
+
+
+def build_vardatalist(model, varlist=None):
+    """
+    Convert a list of pyomo variables to a list of SimpleVar and _GeneralVarData. If varlist is none, builds a
+    list of all variables in the model. Written by CD Laird
+
+    Parameters
+    ----------
+    model: ConcreteModel
+    varlist: None or list of pyo.Var
+    """
+    vardatalist = None
+
+    # if the varlist is None, then assume we want all the active variables
+    if varlist is None:
+        raise RuntimeError("varlist is None in scenario_tree.build_vardatalist")
+        vardatalist = [v for v in model.component_data_objects(pyo.Var, active=True, sort=True)]
+    elif isinstance(varlist, (pyo.Var, IndexedComponent_slice)):
+        # user provided a variable, not a list of variables. Let's work with it anyway
+        varlist = [varlist]
+
+    if vardatalist is None:
+        # expand any indexed components in the list to their
+        # component data objects
+        vardatalist = list()
+        for v in varlist:
+            if isinstance(v, IndexedComponent_slice):
+                vardatalist.extend(v.__iter__())
+            elif v.is_indexed():
+                vardatalist.extend((v[i] for i in sorted(v.keys())))
+            else:
+                vardatalist.append(v)
+    return vardatalist
+    
 
 def not_good_enough_results(results):
     return (results is None) or (len(results.solution) == 0) or \
@@ -212,7 +250,7 @@ def create_EF(scenario_names, scenario_creator, scenario_creator_kwargs=None,
 
     EF_instance = _create_EF_from_scen_dict(scen_dict,
                                             EF_name=EF_name,
-                                            nonant_for_fixed_vars=True)
+                                            nonant_for_fixed_vars=nonant_for_fixed_vars)
     return EF_instance
 
 def _create_EF_from_scen_dict(scen_dict, EF_name=None,
@@ -319,9 +357,9 @@ def _create_EF_from_scen_dict(scen_dict, EF_name=None,
             for i in range(nlens[ndn]):
                 v = node.nonant_vardata_list[i]
                 if (ndn, i) not in ref_vars:
-                    # create the reference variable as a singleton with long name
-                    # xxxx maybe index by _nonant_index ???? rather than singleton VAR ???
-                    ref_vars[(ndn, i)] = v
+                    # grab the reference variable
+                    if (nonant_for_fixed_vars) or (not v.is_fixed()):
+                        ref_vars[(ndn, i)] = v
                 # Add a non-anticipativity constraint, except in the case when
                 # the variable is fixed and nonant_for_fixed_vars=False.
                 elif (nonant_for_fixed_vars) or (not v.is_fixed()):
@@ -993,7 +1031,15 @@ def number_of_nodes(branching_factors):
     #How many nodes does a tree with a given branching_factors have ?
     last_node_stage_num = [i-1 for i in branching_factors]
     return node_idx(last_node_stage_num, branching_factors)
-    
+   
+
+def module_name_to_module(module_name):
+    if inspect.ismodule(module_name):
+        module = module_name
+    else:
+        module = importlib.import_module(module_name)
+    return module
+
 
 if __name__ == "__main__":
     branching_factors = [2,2,2,3]
@@ -1013,3 +1059,4 @@ if __name__ == "__main__":
         print(ndn, v)
     print(f"slices: {slices}")
     check4losses(numscens, branching_factors, sntr, slices, ranks_per_scenario)
+
